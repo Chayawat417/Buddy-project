@@ -1,0 +1,250 @@
+.report-card {
+  width: min(100%, 62rem);
+  min-width: 0;
+  padding: clamp(1.25rem, 4vw, 2.5rem);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+  text-align: left;
+}
+
+.report-controls {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.report-controls h2,
+.report-document-header h2,
+.report-table-section h3 {
+  margin: 0;
+  color: var(--color-text);
+}
+
+.report-controls h2 {
+  font-size: 1.5rem;
+}
+
+.report-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-3);
+}
+
+.report-filters > div {
+  display: grid;
+  min-width: 9rem;
+  gap: var(--space-2);
+}
+
+.report-filters label {
+  color: var(--color-text);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.report-filters input,
+.report-filters select {
+  min-height: 2.75rem;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.report-filters input {
+  width: 7rem;
+}
+
+.report-content {
+  margin-top: var(--space-8);
+}
+
+.report-document-header {
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.report-document-header .eyebrow {
+  margin: 0 0 var(--space-1);
+}
+
+.report-document-header h2 {
+  font-size: 1.5rem;
+}
+
+.report-document-header p:not(.eyebrow) {
+  margin: var(--space-1) 0 0;
+  color: var(--color-muted);
+}
+
+.report-document-header small {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--color-muted);
+}
+
+.report-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.report-summary > div {
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--color-canvas);
+}
+
+.report-summary span {
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+}
+
+.report-summary strong {
+  color: var(--color-text);
+  font-size: clamp(1rem, 2vw, 1.25rem);
+  overflow-wrap: anywhere;
+}
+
+.report-summary small {
+  color: var(--color-muted);
+  font-size: 0.75rem;
+}
+
+.report-over {
+  color: var(--color-danger) !important;
+}
+
+.report-warning {
+  margin: var(--space-4) 0 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-control);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
+.report-table-section {
+  margin-top: var(--space-8);
+}
+
+.report-table-section h3 {
+  margin-bottom: var(--space-3);
+  font-size: 1.125rem;
+}
+
+.report-table {
+  width: 100%;
+  min-width: 34rem;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.report-table th,
+.report-table td {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.report-table thead th {
+  color: var(--color-muted);
+  font-size: 0.8125rem;
+}
+
+.report-table tbody th {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.report-table td {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.category-report-table {
+  min-width: 24rem;
+  max-width: 42rem;
+}
+
+@media (max-width: 700px) {
+  .report-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .report-summary > div {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+  }
+
+  .report-summary small {
+    grid-column: 1 / -1;
+  }
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 14mm;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .report-card,
+  .report-card * {
+    visibility: visible !important;
+  }
+
+  .report-card {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .no-print,
+  .report-controls,
+  .report-card > p {
+    display: none !important;
+  }
+
+  .report-content {
+    margin: 0;
+  }
+
+  .report-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .report-summary > div {
+    padding: 8px;
+    break-inside: avoid;
+  }
+
+  .report-table-section {
+    margin-top: 18px;
+    break-inside: avoid;
+  }
+
+  .report-table {
+    min-width: 0;
+    font-size: 10pt;
+  }
+
+  .report-table th,
+  .report-table td {
+    padding: 6px;
+  }
+}
