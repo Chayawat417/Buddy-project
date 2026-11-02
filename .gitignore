@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+coverage/
+/Buddy-savepoint-2026-11-01.zip
+/Future Plan of 2026 (2).xlsx
+/HANDOFF.md
+/PROGRESS.md

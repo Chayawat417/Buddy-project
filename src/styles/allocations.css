@@ -99,9 +99,11 @@
 }
 
 .reconciliation > div {
+  position: relative;
   display: grid;
   gap: var(--space-1);
   padding: var(--space-4);
+  border-top: 2px solid var(--color-accent);
   border-radius: var(--radius-control);
   background: var(--color-canvas);
 }
@@ -109,23 +111,29 @@
 .reconciliation span {
   color: var(--color-muted);
   font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
 }
 
 .reconciliation strong {
   color: var(--color-text);
-  font-size: clamp(1rem, 2.5vw, 1.25rem);
+  font-size: 1.25rem;
+  font-weight: 750;
   overflow-wrap: anywhere;
 }
 
 .reconciliation .is-balanced {
+  border-top-color: var(--color-success);
   background: var(--color-success-soft);
 }
 
 .reconciliation .is-balanced strong {
-  color: var(--color-primary-hover);
+  color: var(--color-success);
 }
 
 .reconciliation .is-over {
+  border-top-color: var(--color-danger);
   background: var(--color-danger-soft);
 }
 
@@ -216,7 +224,8 @@
 
 .allocation-list table {
   width: 100%;
-  min-width: 42rem;
+  /* Three columns: category, amount, actions. */
+  min-width: 32rem;
   border-collapse: collapse;
   text-align: left;
 }
@@ -235,13 +244,14 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-.allocation-list th:first-child,
-.allocation-list td:first-child {
-  width: 38%;
+.allocation-list td input,
+.allocation-list td select {
+  min-width: 9rem;
 }
 
-.allocation-list td:nth-child(2) {
-  width: 28%;
+.allocation-list th:last-child,
+.allocation-list td:last-child {
+  width: 1%;
 }
 
 .allocation-actions {
@@ -276,7 +286,7 @@
 
 .success-message {
   margin: var(--space-4) 0 0;
-  color: var(--color-primary-hover);
+  color: var(--color-success);
   font-size: 0.875rem;
 }
 

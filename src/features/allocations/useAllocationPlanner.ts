@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import type { AllocationRecord } from "../../data/buddyDatabase";
+import { useLanguage } from "../../i18n";
+import type { TranslationKey } from "../../i18n";
 import {
   calculateAllocationTotals,
+  formatBudgetMonth,
   formatSatangAsBahtInput,
   MoneyInputError,
   parseBahtToSatang,
@@ -19,25 +22,31 @@ import {
   updateAllocation,
 } from "./allocationRepository";
 
-function getErrorMessage(error: unknown): string {
+function getErrorMessageKey(error: unknown): TranslationKey {
   if (error instanceof MoneyInputError) {
-    return "กรุณากรอกจำนวนเงินตั้งแต่ 0 บาทขึ้นไป โดยมีทศนิยมไม่เกิน 2 ตำแหน่ง";
+    return "budget.error.money";
   }
   if (error instanceof AllocationNameError) {
     return error.code === "required"
-      ? "กรุณากรอกชื่อหมวดงบประมาณ"
-      : "ชื่อหมวดงบประมาณต้องไม่เกิน 60 ตัวอักษร";
+      ? "budget.error.nameRequired"
+      : "budget.error.nameTooLong";
   }
   if (error instanceof AllocationAlreadyExistsError) {
-    return "มีหมวดงบประมาณชื่อนี้ในเดือนดังกล่าวแล้ว";
+    return "budget.error.duplicate";
   }
   if (error instanceof InvalidBudgetMonthError) {
-    return "เดือนที่เลือกไม่ถูกต้อง";
+    return "budget.error.invalidMonth";
   }
-  return "บันทึกข้อมูลไม่สำเร็จ กรุณาลองอีกครั้ง";
+  return "budget.error.save";
+}
+
+interface LocalizedMessage {
+  key: TranslationKey;
+  params?: Readonly<Record<string, string | number>>;
 }
 
 export function useAllocationPlanner(profileId: string, month: string) {
+  const { locale, t } = useLanguage();
   const [income, setIncome] = useState("");
   const [hasIncome, setHasIncome] = useState(false);
   const [allocations, setAllocations] = useState<AllocationRecord[]>([]);
@@ -46,8 +55,8 @@ export function useAllocationPlanner(profileId: string, month: string) {
   >({});
   const [isLoading, setIsLoading] = useState(true);
   const [isCopyingPreviousMonth, setIsCopyingPreviousMonth] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState<LocalizedMessage | null>(null);
+  const [successMessage, setSuccessMessage] = useState<LocalizedMessage | null>(null);
   const [newName, setNewName] = useState("");
   const [newAmount, setNewAmount] = useState("");
 
@@ -56,8 +65,8 @@ export function useAllocationPlanner(profileId: string, month: string) {
 
     async function loadBudget(): Promise<void> {
       setIsLoading(true);
-      setErrorMessage("");
-      setSuccessMessage("");
+      setErrorMessage(null);
+      setSuccessMessage(null);
       setIncome("");
       setHasIncome(false);
       setAllocations([]);
@@ -74,7 +83,7 @@ export function useAllocationPlanner(profileId: string, month: string) {
           setAllocations(snapshot.allocations);
         }
       } catch (error) {
-        if (isMounted) setErrorMessage(getErrorMessage(error));
+        if (isMounted) setErrorMessage({ key: getErrorMessageKey(error) });
       } finally {
         if (isMounted) setIsLoading(false);
       }
@@ -122,44 +131,49 @@ export function useAllocationPlanner(profileId: string, month: string) {
     event: FormEvent<HTMLFormElement>,
   ): Promise<void> {
     event.preventDefault();
-    setErrorMessage("");
-    setSuccessMessage("");
+    setErrorMessage(null);
+    setSuccessMessage(null);
     try {
       const incomeSatang = parseBahtToSatang(income);
       await saveMonthlyIncome(profileId, month, incomeSatang);
       setIncome(formatSatangAsBahtInput(incomeSatang));
       setHasIncome(true);
-      setSuccessMessage("บันทึกรายได้แล้ว");
+      setSuccessMessage({ key: "budget.incomeSaved" });
     } catch (error) {
-      setErrorMessage(getErrorMessage(error));
+      setErrorMessage({ key: getErrorMessageKey(error) });
     }
   }
 
   async function handleCopyPreviousMonth(): Promise<void> {
-    setErrorMessage("");
-    setSuccessMessage("");
+    setErrorMessage(null);
+    setSuccessMessage(null);
     setIsCopyingPreviousMonth(true);
     try {
       const result = await copyPreviousMonthAllocations(profileId, month);
-      setAllocations((current) => [
-        ...current,
-        ...result.copiedAllocations,
-      ]);
+      setAllocations((current) =>
+        [...current, ...result.copiedAllocations].sort(
+          (left, right) => left.createdAt - right.createdAt,
+        ),
+      );
       if (result.sourceCount === 0) {
-        setSuccessMessage("เดือนก่อนยังไม่มีหมวดงบประมาณให้คัดลอก");
+        setSuccessMessage({ key: "budget.copiedNone" });
       } else if (result.copiedAllocations.length === 0) {
-        setSuccessMessage("หมวดจากเดือนก่อนมีอยู่ในเดือนนี้ครบแล้ว");
+        setSuccessMessage({ key: "budget.copiedAll" });
       } else {
-        const skippedMessage =
-          result.skippedCount > 0
-            ? ` (ข้ามหมวดซ้ำ ${result.skippedCount} หมวด)`
-            : "";
-        setSuccessMessage(
-          `คัดลอก ${result.copiedAllocations.length} หมวดจากเดือน ${result.sourceMonth} แล้ว${skippedMessage}`,
-        );
+        setSuccessMessage({
+          key: result.skippedCount > 0
+            ? "budget.copiedSomeWithSkipped"
+            : "budget.copiedSome",
+          params: {
+            count: result.copiedAllocations.length,
+            month: result.sourceMonth,
+            skippedCount: result.skippedCount,
+            skipped: "",
+          },
+        });
       }
     } catch (error) {
-      setErrorMessage(getErrorMessage(error));
+      setErrorMessage({ key: getErrorMessageKey(error) });
     } finally {
       setIsCopyingPreviousMonth(false);
     }
@@ -169,17 +183,17 @@ export function useAllocationPlanner(profileId: string, month: string) {
     event: FormEvent<HTMLFormElement>,
   ): Promise<void> {
     event.preventDefault();
-    setErrorMessage("");
-    setSuccessMessage("");
+    setErrorMessage(null);
+    setSuccessMessage(null);
     try {
       const amountSatang = parseBahtToSatang(newAmount);
       await createAllocation(profileId, month, newName, amountSatang);
       await reloadBudget();
       setNewName("");
       setNewAmount("");
-      setSuccessMessage("บันทึกแล้ว");
+      setSuccessMessage({ key: "budget.saved" });
     } catch (error) {
-      setErrorMessage(getErrorMessage(error));
+      setErrorMessage({ key: getErrorMessageKey(error) });
     }
   }
 
@@ -188,8 +202,8 @@ export function useAllocationPlanner(profileId: string, month: string) {
     name: string,
     amount: string,
   ): Promise<void> {
-    setErrorMessage("");
-    setSuccessMessage("");
+    setErrorMessage(null);
+    setSuccessMessage(null);
     try {
       await updateAllocation(
         profileId,
@@ -199,9 +213,9 @@ export function useAllocationPlanner(profileId: string, month: string) {
         parseBahtToSatang(amount),
       );
       await reloadBudget();
-      setSuccessMessage("บันทึกแล้ว");
+      setSuccessMessage({ key: "budget.saved" });
     } catch (error) {
-      setErrorMessage(getErrorMessage(error));
+      setErrorMessage({ key: getErrorMessageKey(error) });
     }
   }
 
@@ -227,23 +241,23 @@ export function useAllocationPlanner(profileId: string, month: string) {
   async function handleDeleteAllocation(
     allocation: AllocationRecord,
   ): Promise<void> {
-    if (!window.confirm(`ลบหมวด "${allocation.name}" หรือไม่?`)) return;
+    if (!window.confirm(t("budget.deleteConfirm", { name: allocation.name }))) return;
 
-    setErrorMessage("");
-    setSuccessMessage("");
+    setErrorMessage(null);
+    setSuccessMessage(null);
     try {
       await deleteAllocation(profileId, month, allocation.id);
       await reloadBudget();
-      setSuccessMessage("ลบหมวดงบประมาณแล้ว");
+      setSuccessMessage({ key: "budget.deleted" });
     } catch (error) {
-      setErrorMessage(getErrorMessage(error));
+      setErrorMessage({ key: getErrorMessageKey(error) });
     }
   }
 
   return {
     allocatedSatang,
     allocations,
-    errorMessage,
+    errorMessage: errorMessage ? t(errorMessage.key, errorMessage.params) : "",
     handleAddAllocation,
     handleAllocationAmountChange,
     handleCopyPreviousMonth,
@@ -259,7 +273,19 @@ export function useAllocationPlanner(profileId: string, month: string) {
     setIncome,
     setNewAmount,
     setNewName,
-    successMessage,
+    successMessage: successMessage
+      ? t(successMessage.key, {
+          ...successMessage.params,
+          ...(typeof successMessage.params?.month === "string"
+            ? {
+                month: formatBudgetMonth(
+                  successMessage.params.month,
+                  locale,
+                ),
+              }
+            : {}),
+        })
+      : "",
     totals,
   };
 }

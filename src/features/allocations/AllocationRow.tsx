@@ -8,13 +8,18 @@ import {
   formatSatangAsBahtInput,
   parseBahtToSatang,
 } from "../../domain/money";
+import { useLanguage } from "../../i18n";
 
 interface AllocationRowProps {
   allocation: AllocationRecord;
   categories: BudgetCategoryRecord[];
   index: number;
   onAmountChange: (allocationId: string, amount: string) => void;
-  onSave: (allocationId: string, name: string, amount: string) => Promise<void>;
+  onSave: (
+    allocationId: string,
+    name: string,
+    amount: string,
+  ) => Promise<void>;
   onDelete: (allocation: AllocationRecord) => Promise<void>;
 }
 
@@ -26,6 +31,7 @@ export default function AllocationRow({
   onSave,
   onDelete,
 }: AllocationRowProps) {
+  const { t } = useLanguage();
   const [name, setName] = useState(allocation.name);
   const [amount, setAmount] = useState(
     formatSatangAsBahtInput(allocation.amountSatang),
@@ -37,7 +43,8 @@ export default function AllocationRow({
   } catch {
     hasAmountChanged = true;
   }
-  const hasUnsavedChanges = name !== allocation.name || hasAmountChanged;
+  const hasUnsavedChanges =
+    name !== allocation.name || hasAmountChanged;
 
   useEffect(() => {
     setName(allocation.name);
@@ -59,7 +66,7 @@ export default function AllocationRow({
     <tr>
       <td>
         <label className="visually-hidden" htmlFor={`allocation-name-${allocation.id}`}>
-          ชื่อหมวดที่ {index + 1}
+          {t("budget.rowName", { index: index + 1 })}
         </label>
         <select
           id={`allocation-name-${allocation.id}`}
@@ -68,7 +75,9 @@ export default function AllocationRow({
           value={name}
         >
           {!categories.some((category) => category.name === allocation.name) && (
-            <option value={allocation.name}>{allocation.name} (หมวดเดิม)</option>
+            <option value={allocation.name}>
+              {allocation.name} ({t("budget.oldCategory")})
+            </option>
           )}
           {categories.map((category) => (
             <option key={category.id} value={category.name}>
@@ -82,7 +91,7 @@ export default function AllocationRow({
           className="visually-hidden"
           htmlFor={`allocation-amount-${allocation.id}`}
         >
-          จำนวนเงินหมวดที่ {index + 1} บาท
+          {t("budget.rowAmount", { index: index + 1 })}
         </label>
         <input
           id={`allocation-amount-${allocation.id}`}
@@ -97,25 +106,27 @@ export default function AllocationRow({
           value={amount}
         />
       </td>
-      <td className="allocation-actions">
-        {hasUnsavedChanges && (
+      <td>
+        <div className="allocation-actions">
+          {hasUnsavedChanges && (
+            <button
+              aria-label={t("budget.saveCategory", { name })}
+              className="button button-secondary"
+              onClick={save}
+              type="button"
+            >
+              {t("budget.saveRow")}
+            </button>
+          )}
           <button
-            aria-label={`บันทึกหมวด ${name}`}
-            className="button button-secondary"
-            onClick={save}
+            aria-label={t("budget.deleteCategory", { name })}
+            className="button button-danger"
+            onClick={() => void onDelete(allocation)}
             type="button"
           >
-            บันทึก
+            {t("budget.deleteRow")}
           </button>
-        )}
-        <button
-          aria-label={`ลบหมวด ${name}`}
-          className="button button-danger"
-          onClick={() => void onDelete(allocation)}
-          type="button"
-        >
-          ลบ
-        </button>
+        </div>
       </td>
     </tr>
   );

@@ -1,12 +1,17 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import type { ProfileRecord } from "../../data/buddyDatabase";
+import BuddyLogo from "../brand/BuddyLogo";
 import AllocationPlanner from "../allocations/AllocationPlanner";
 import CategorySettings from "../allocations/CategorySettings";
 import BackupControls from "../backup/BackupControls";
 import InstallAppButton from "../pwa/InstallAppButton";
 import ReportViewer from "../reports/ReportViewer";
+import CreditCardExpenses from "../expenses/CreditCardExpenses";
 import ThemeToggle from "../theme/ThemeToggle";
+import LanguageToggle from "../language/LanguageToggle";
+import { useLanguage } from "../../i18n";
+import type { TranslationKey } from "../../i18n";
 import {
   createProfile,
   deleteProfile,
@@ -19,33 +24,39 @@ import {
   setActiveProfileId,
 } from "./profileRepository";
 
-function getErrorMessage(error: unknown): string {
+function getErrorMessage(
+  error: unknown,
+): TranslationKey {
   if (error instanceof ProfileNameError) {
     return error.code === "required"
-      ? "กรุณากรอกชื่อโปรไฟล์"
-      : "ชื่อโปรไฟล์ต้องไม่เกิน 40 ตัวอักษร";
+      ? "profile.error.required"
+      : "profile.error.tooLong";
   }
 
   if (error instanceof ProfileAlreadyExistsError) {
-    return "มีโปรไฟล์ชื่อนี้แล้ว";
+    return "profile.error.duplicate";
   }
 
   if (error instanceof ProfileNotFoundError) {
-    return "ไม่พบโปรไฟล์นี้ กรุณาโหลดรายการใหม่";
+    return "profile.error.notFound";
   }
 
-  return "เกิดข้อผิดพลาดในการบันทึกข้อมูล กรุณาลองอีกครั้ง";
+  return "profile.error.save";
 }
 
 export default function ProfileManager() {
+  const { t } = useLanguage();
   const [profiles, setProfiles] = useState<ProfileRecord[]>([]);
   const [activeProfileId, setActiveProfileIdState] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
-  const [activePage, setActivePage] = useState<"budget" | "categories">("budget");
+  const [activePage, setActivePage] = useState<
+    "budget" | "categories" | "expenses"
+  >("budget");
+  const [dataVersion, setDataVersion] = useState(0);
   const [name, setName] = useState("");
-  const [errorMessage, setErrorMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState<TranslationKey | null>(null);
 
   async function refreshProfiles(): Promise<void> {
     const savedProfiles = await listProfiles();
@@ -63,6 +74,7 @@ export default function ProfileManager() {
 
     setProfiles(savedProfiles);
     setActiveProfileIdState(nextActiveProfileId);
+    setDataVersion((current) => current + 1);
   }
 
   useEffect(() => {
@@ -73,7 +85,7 @@ export default function ProfileManager() {
         await refreshProfiles();
       } catch {
         if (isMounted) {
-          setErrorMessage("เปิดฐานข้อมูลโปรไฟล์ไม่สำเร็จ กรุณารีเฟรชหน้า");
+          setErrorMessage("profile.loadError");
         }
       } finally {
         if (isMounted) {
@@ -90,10 +102,11 @@ export default function ProfileManager() {
 
   const activeProfile =
     profiles.find((profile) => profile.id === activeProfileId) ?? null;
+  const isProfileCardCompact = Boolean(activeProfile) || activePage !== "budget";
 
   function beginCreate(): void {
     setName("");
-    setErrorMessage("");
+    setErrorMessage(null);
     setIsCreating(true);
     setIsRenaming(false);
   }
@@ -101,7 +114,7 @@ export default function ProfileManager() {
   function beginRename(): void {
     if (!activeProfile) return;
     setName(activeProfile.name);
-    setErrorMessage("");
+    setErrorMessage(null);
     setIsRenaming(true);
     setIsCreating(false);
   }
@@ -110,12 +123,12 @@ export default function ProfileManager() {
     setIsCreating(false);
     setIsRenaming(false);
     setName("");
-    setErrorMessage("");
+    setErrorMessage(null);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    setErrorMessage("");
+    setErrorMessage(null);
 
     try {
       if (isRenaming && activeProfile) {
@@ -139,7 +152,7 @@ export default function ProfileManager() {
   }
 
   async function handleProfileChange(profileId: string): Promise<void> {
-    setErrorMessage("");
+    setErrorMessage(null);
     try {
       await setActiveProfileId(profileId);
       setActiveProfileIdState(profileId);
@@ -152,11 +165,11 @@ export default function ProfileManager() {
     if (!activeProfile) return;
 
     const confirmed = window.confirm(
-      `ลบโปรไฟล์ "${activeProfile.name}" และงบประมาณทั้งหมดของโปรไฟล์นี้หรือไม่? การลบนี้ไม่สามารถย้อนกลับได้`,
+      t("profile.deleteConfirm", { name: activeProfile.name }),
     );
     if (!confirmed) return;
 
-    setErrorMessage("");
+    setErrorMessage(null);
     try {
       await deleteProfile(activeProfile.id);
       const remainingProfiles = profiles.filter(
@@ -174,141 +187,207 @@ export default function ProfileManager() {
   if (isLoading) {
     return (
       <main className="welcome">
-        <p role="status">กำลังเปิดโปรไฟล์…</p>
+        <p role="status">{t("profile.loadStatus")}</p>
       </main>
     );
   }
 
   return (
     <main className="welcome">
-      <div className="page-tools">
-        <ThemeToggle />
-      </div>
-      <section className="welcome-card profile-card" aria-labelledby="welcome-title">
-        <div className="brand-mark" aria-hidden="true">
-          b
-        </div>
-        <p className="eyebrow">พื้นที่วางแผนการเงินของคุณ</p>
-        <h1 id="welcome-title">จัดสรรเงินอย่างสบายใจ</h1>
-        <p className="welcome-copy">
-          Buddy จะช่วยแบ่งรายได้เป็นงบประมาณที่ชัดเจน
-          และตรวจสอบยอดคงเหลือให้คุณในทุกเดือน
-        </p>
-
-        {profiles.length > 0 && (
-          <div className="profile-picker">
-            <label htmlFor="profile-select">โปรไฟล์</label>
-            <select
-              id="profile-select"
-              value={activeProfileId ?? ""}
-              onChange={(event) => void handleProfileChange(event.target.value)}
-            >
-              {profiles.map((profile) => (
-                <option key={profile.id} value={profile.id}>
-                  {profile.name}
-                </option>
-              ))}
-            </select>
-            <div className="profile-actions">
-              <button className="button button-secondary" onClick={beginRename}>
-                เปลี่ยนชื่อ
-              </button>
-              <button className="button button-danger" onClick={handleDelete}>
-                ลบโปรไฟล์
-              </button>
-            </div>
+      <header className="dashboard-chrome">
+        <div className="dashboard-topbar">
+          <div className="dashboard-brand">
+            <BuddyLogo />
           </div>
-        )}
-
-        {(isCreating || isRenaming) && (
-          <form className="profile-form" onSubmit={(event) => void handleSubmit(event)}>
-            <label htmlFor="profile-name">
-              {isRenaming ? "ชื่อโปรไฟล์ใหม่" : "ชื่อโปรไฟล์"}
-            </label>
-            <input
-              autoFocus
-              id="profile-name"
-              maxLength={40}
-              onChange={(event) => setName(event.target.value)}
-              value={name}
-            />
-            <div className="profile-actions">
-              <button className="button button-primary" type="submit">
-                บันทึก
-              </button>
-              <button
-                className="button button-secondary"
-                onClick={cancelEditing}
-                type="button"
-              >
-                ยกเลิก
-              </button>
-            </div>
-          </form>
-        )}
-
-        {!isCreating && !isRenaming && (
-          <button className="button button-primary add-profile" onClick={beginCreate}>
-            เพิ่มโปรไฟล์
-          </button>
-        )}
-
-        {errorMessage && (
-          <p className="error-message" role="alert">
-            {errorMessage}
-          </p>
-        )}
-
-        <div className="setup-note" role="status">
-          <span className="status-dot" aria-hidden="true" />
-          <span>โปรไฟล์และข้อมูลเก็บไว้ในอุปกรณ์นี้</span>
+          <div className="page-tools">
+            <LanguageToggle />
+            <ThemeToggle />
+          </div>
         </div>
-        <InstallAppButton />
-        <BackupControls onRestored={refreshProfiles} />
-      </section>
-      <nav aria-label="หน้าหลักของ Buddy" className="page-navigation">
-        <button
-          aria-current={activePage === "budget" ? "page" : undefined}
+        <nav aria-label={t("navigation.label")} className="page-navigation">
+          <button
+            aria-current={activePage === "budget" ? "page" : undefined}
+            className={
+              activePage === "budget"
+                ? "button button-primary"
+                : "button button-secondary"
+            }
+            onClick={() => setActivePage("budget")}
+            type="button"
+          >
+            {t("navigation.budget")}
+          </button>
+          <button
+            aria-current={activePage === "expenses" ? "page" : undefined}
+            className={
+              activePage === "expenses"
+                ? "button button-primary"
+                : "button button-secondary"
+            }
+            onClick={() => setActivePage("expenses")}
+            type="button"
+          >
+            {t("navigation.expenses")}
+          </button>
+          <button
+            aria-current={activePage === "categories" ? "page" : undefined}
+            className={
+              activePage === "categories"
+                ? "button button-primary"
+                : "button button-secondary"
+            }
+            onClick={() => setActivePage("categories")}
+            type="button"
+          >
+            {t("navigation.categories")}
+          </button>
+        </nav>
+      </header>
+      <div className="dashboard-content">
+        <div className="cockpit-workspace-header">
+          <div className="cockpit-breadcrumb">
+            <span>Buddy</span>
+            <span aria-hidden="true">/</span>
+            <strong aria-current="page">
+              {t(
+                activePage === "budget"
+                  ? "navigation.budget"
+                  : activePage === "expenses"
+                    ? "navigation.expenses"
+                    : "navigation.categories",
+              )}
+            </strong>
+          </div>
+          <div className="cockpit-local-state">
+            <span aria-hidden="true" className="status-dot" />
+            <span>{t("profile.localData")}</span>
+          </div>
+        </div>
+        <section
+          aria-labelledby={isProfileCardCompact ? undefined : "welcome-title"}
           className={
-            activePage === "budget" ? "button button-primary" : "button button-secondary"
+            isProfileCardCompact
+              ? `profile-card profile-card-compact${activeProfile ? "" : " profile-card-empty"}`
+              : "welcome-card profile-card"
           }
-          onClick={() => setActivePage("budget")}
-          type="button"
         >
-          งบประมาณ
-        </button>
-        <button
-          aria-current={activePage === "categories" ? "page" : undefined}
-          className={
-            activePage === "categories"
-              ? "button button-primary"
-              : "button button-secondary"
-          }
-          onClick={() => setActivePage("categories")}
-          type="button"
-        >
-          ตั้งค่าหมวด
-        </button>
-      </nav>
-      {activePage === "categories" ? (
-        <CategorySettings onBack={() => setActivePage("budget")} />
-      ) : activeProfile ? (
-        <>
-          <AllocationPlanner
-            key={activeProfile.id}
-            profileId={activeProfile.id}
-            profileName={activeProfile.name}
-          />
-          <ReportViewer
-            key={`report-${activeProfile.id}`}
-            profileId={activeProfile.id}
-            profileName={activeProfile.name}
-          />
-        </>
-      ) : null}
-      <footer className="welcome-footer">
-        ใช้ร่วมกันได้ แต่อย่าลืมว่าผู้ใช้เครื่องนี้อาจเห็นทุกโปรไฟล์
-      </footer>
+          {!isProfileCardCompact && (
+            <>
+              <div className="brand-lockup">
+                <BuddyLogo />
+              </div>
+              <p className="eyebrow">{t("profile.eyebrow")}</p>
+              <h1 id="welcome-title">{t("profile.title")}</h1>
+              <p className="welcome-copy">{t("profile.description")}</p>
+            </>
+          )}
+
+          {profiles.length > 0 && (
+            <div className="profile-picker">
+              <label htmlFor="profile-select">{t("profile.label")}</label>
+              <select
+                id="profile-select"
+                value={activeProfileId ?? ""}
+                onChange={(event) => void handleProfileChange(event.target.value)}
+              >
+                {profiles.map((profile) => (
+                  <option key={profile.id} value={profile.id}>
+                    {profile.name}
+                  </option>
+                ))}
+              </select>
+              <div className="profile-actions">
+                <button className="button button-secondary" onClick={beginRename}>
+                  {t("profile.rename")}
+                </button>
+                <button className="button button-danger" onClick={handleDelete}>
+                  {t("profile.delete")}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {(isCreating || isRenaming) && (
+            <form
+              className="profile-form"
+              onSubmit={(event) => void handleSubmit(event)}
+            >
+              <label htmlFor="profile-name">
+                {t(isRenaming ? "profile.newName" : "profile.name")}
+              </label>
+              <input
+                autoFocus
+                id="profile-name"
+                maxLength={40}
+                onChange={(event) => setName(event.target.value)}
+                value={name}
+              />
+              <div className="profile-actions">
+                <button className="button button-primary" type="submit">
+                  {t("profile.save")}
+                </button>
+                <button
+                  className="button button-secondary"
+                  onClick={cancelEditing}
+                  type="button"
+                >
+                  {t("profile.cancel")}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {!isCreating && !isRenaming && (
+            <button
+              className="button button-primary add-profile"
+              onClick={beginCreate}
+            >
+              {t("profile.add")}
+            </button>
+          )}
+
+          {errorMessage && (
+            <p className="error-message" role="alert">
+              {t(errorMessage)}
+            </p>
+          )}
+
+          {!isProfileCardCompact && (
+            <div className="setup-note" role="status">
+              <span className="status-dot" aria-hidden="true" />
+              <span>{t("profile.localData")}</span>
+            </div>
+          )}
+          <InstallAppButton />
+          {isProfileCardCompact ? (
+            <details className="profile-backup-details">
+              <summary>{t("backup.title")}</summary>
+              <BackupControls onRestored={refreshProfiles} />
+            </details>
+          ) : (
+            <BackupControls onRestored={refreshProfiles} />
+          )}
+        </section>
+        {activePage === "expenses" ? (
+          <CreditCardExpenses key={`expenses-${dataVersion}`} />
+        ) : activePage === "categories" ? (
+          <CategorySettings onBack={() => setActivePage("budget")} />
+        ) : activeProfile ? (
+          <>
+            <AllocationPlanner
+              key={`${activeProfile.id}-${dataVersion}`}
+              profileId={activeProfile.id}
+              profileName={activeProfile.name}
+            />
+            <ReportViewer
+              key={`report-${activeProfile.id}`}
+              profileId={activeProfile.id}
+              profileName={activeProfile.name}
+            />
+          </>
+        ) : null}
+        <footer className="welcome-footer">{t("profile.footer")}</footer>
+      </div>
     </main>
   );
 }

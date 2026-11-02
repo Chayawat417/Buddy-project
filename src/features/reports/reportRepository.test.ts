@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { buddyDatabase } from "../../data/buddyDatabase";
 import { createAllocation, saveMonthlyIncome } from "../allocations/allocationRepository";
 import { createProfile } from "../profiles/profileRepository";
-import { getBudgetReport } from "./reportRepository";
+import { getBudgetReport, observeBudgetReport } from "./reportRepository";
+import type { BudgetReport } from "../../domain/report";
 
 describe("report repository", () => {
   beforeEach(async () => {
@@ -64,5 +65,52 @@ describe("report repository", () => {
       },
     ]);
     expect(report.monthsMissingIncome).toBe(3);
+  });
+
+  it("emits an updated report after budgets change, without reloading", async () => {
+    const profile = await createProfile("Alex");
+    const reports: BudgetReport[] = [];
+    let resolveNext: (() => void) | null = null;
+    const waitForReport = (count: number) =>
+      new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("no report update")), 2000);
+        const check = () => {
+          if (reports.length >= count) {
+            clearTimeout(timer);
+            resolve();
+          } else {
+            resolveNext = check;
+          }
+        };
+        check();
+      });
+
+    const unsubscribe = observeBudgetReport(
+      profile.id,
+      { startMonth: "2026-01", endMonth: "2026-03" },
+      (report) => {
+        reports.push(report);
+        resolveNext?.();
+      },
+      (error) => {
+        throw error;
+      },
+    );
+
+    try {
+      await waitForReport(1);
+      expect(reports[0]?.allocatedTotalSatang).toBe(0);
+
+      await saveMonthlyIncome(profile.id, "2026-02", 3500000);
+      await createAllocation(profile.id, "2026-02", "Food", 1200050);
+
+      await waitForReport(2);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const latest = reports.at(-1);
+      expect(latest?.incomeTotalSatang).toBe(3500000);
+      expect(latest?.allocatedTotalSatang).toBe(1200050);
+    } finally {
+      unsubscribe();
+    }
   });
 });

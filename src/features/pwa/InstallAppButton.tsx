@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLanguage } from "../../i18n";
 
 interface InstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -6,10 +7,11 @@ interface InstallPromptEvent extends Event {
 }
 
 export default function InstallAppButton() {
+  const { t } = useLanguage();
   const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(
     null,
   );
-  const [errorMessage, setErrorMessage] = useState("");
+  const [hasError, setHasError] = useState(false);
 
   useEffect(() => {
     function handleBeforeInstallPrompt(event: Event): void {
@@ -36,13 +38,13 @@ export default function InstallAppButton() {
   async function handleInstall(): Promise<void> {
     if (!installPrompt) return;
 
-    setErrorMessage("");
+    setHasError(false);
     try {
       await installPrompt.prompt();
       await installPrompt.userChoice;
       setInstallPrompt(null);
     } catch {
-      setErrorMessage("เปิดหน้าต่างติดตั้งไม่สำเร็จ กรุณาใช้เมนูติดตั้งของ Chrome");
+      setHasError(true);
       setInstallPrompt(null);
     }
   }
@@ -56,11 +58,11 @@ export default function InstallAppButton() {
         onClick={() => void handleInstall()}
         type="button"
       >
-        ติดตั้ง Buddy
+        {t("install.button")}
       </button>
-      {errorMessage && (
+      {hasError && (
         <p className="error-message" role="alert">
-          {errorMessage}
+          {t("install.error")}
         </p>
       )}
     </div>

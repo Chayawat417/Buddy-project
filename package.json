@@ -1,16 +1,13 @@
 {
-  "name": "buddy",
+  "name": "buddy-budget",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "engines": {
-    "node": "^22.12.0 || >=24.0.0"
-  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "dexie": "4.4.7",

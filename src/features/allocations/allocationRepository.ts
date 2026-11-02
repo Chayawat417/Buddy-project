@@ -26,12 +26,33 @@ export class AllocationNameError extends Error {
   }
 }
 
+export class AllocationMetadataError extends Error {
+  constructor() {
+    super("Allocation metadata fields must be 60 characters or fewer.");
+    this.name = "AllocationMetadataError";
+  }
+}
+
 export class AllocationAlreadyExistsError extends Error {
   constructor() {
     super("An allocation with this name already exists in this month.");
     this.name = "AllocationAlreadyExistsError";
   }
 }
+
+export interface AllocationMetadata {
+  number: string;
+  type: string;
+  subnumber: string;
+  itemType: string;
+}
+
+export const EMPTY_ALLOCATION_METADATA: AllocationMetadata = {
+  number: "",
+  type: "",
+  subnumber: "",
+  itemType: "",
+};
 
 export class InvalidBudgetMonthError extends Error {
   constructor() {
@@ -103,6 +124,21 @@ function normalizeAllocationName(name: string): { name: string; nameKey: string 
   }
 
   return { name: normalizedName, nameKey: normalizedName.toLowerCase() };
+}
+
+function normalizeAllocationMetadata(
+  metadata: AllocationMetadata,
+): AllocationMetadata {
+  const normalized = {
+    number: metadata.number.trim(),
+    type: metadata.type.trim(),
+    subnumber: metadata.subnumber.trim(),
+    itemType: metadata.itemType.trim(),
+  };
+  if (Object.values(normalized).some((value) => value.length > 60)) {
+    throw new AllocationMetadataError();
+  }
+  return normalized;
 }
 
 async function getOrCreatePlan(
@@ -178,7 +214,7 @@ export async function copyPreviousMonthAllocations(
         buddyDatabase.allocations
           .where("[profileId+month]")
           .equals([profileId, sourceMonth])
-          .toArray(),
+          .sortBy("createdAt"),
         buddyDatabase.allocations
           .where("[profileId+month]")
           .equals([profileId, targetMonth])
@@ -187,17 +223,26 @@ export async function copyPreviousMonthAllocations(
       const targetNames = new Set(
         targetAllocations.map((allocation) => allocation.nameKey),
       );
-      const now = Date.now();
+      const now = Math.max(
+        Date.now(),
+        ...targetAllocations.map((allocation) => allocation.createdAt + 1),
+      );
       const copiedAllocations = sourceAllocations
         .filter((allocation) => !targetNames.has(allocation.nameKey))
-        .map((allocation) => ({
+        // Offset each timestamp so copied rows keep the source order instead
+        // of tying on one millisecond and falling back to random ids.
+        .map((allocation, index) => ({
           id: crypto.randomUUID(),
           profileId,
           month: targetMonth,
           name: allocation.name,
           nameKey: allocation.nameKey,
           amountSatang: allocation.amountSatang,
-          createdAt: now,
+          number: allocation.number ?? "",
+          type: allocation.type ?? "",
+          subnumber: allocation.subnumber ?? "",
+          itemType: allocation.itemType ?? "",
+          createdAt: now + index,
           updatedAt: now,
         }));
 
@@ -302,10 +347,12 @@ export async function createAllocation(
   month: string,
   name: string,
   amountSatang: number,
+  metadata: AllocationMetadata = EMPTY_ALLOCATION_METADATA,
 ): Promise<AllocationRecord> {
   validateMonth(month);
   validateAmount(amountSatang);
   const normalized = normalizeAllocationName(name);
+  const normalizedMetadata = normalizeAllocationMetadata(metadata);
 
   try {
     return await buddyDatabase.transaction(
@@ -315,13 +362,25 @@ export async function createAllocation(
       async () => {
         await requireProfile(profileId);
         const now = Date.now();
+        // Keep createdAt strictly increasing within a month so rows added in
+        // the same millisecond still load in the order they were added.
+        const monthAllocations = await buddyDatabase.allocations
+          .where("[profileId+month]")
+          .equals([profileId, month])
+          .toArray();
+        const latestCreatedAt = monthAllocations.reduce(
+          (latest, existing) => Math.max(latest, existing.createdAt),
+          Number.NEGATIVE_INFINITY,
+        );
+        const createdAt = Math.max(now, latestCreatedAt + 1);
         const allocation: AllocationRecord = {
           id: crypto.randomUUID(),
           profileId,
           month,
           ...normalized,
+          ...normalizedMetadata,
           amountSatang,
-          createdAt: now,
+          createdAt,
           updatedAt: now,
         };
         await buddyDatabase.allocations.add(allocation);
@@ -340,6 +399,7 @@ export async function updateAllocation(
   allocationId: string,
   name: string,
   amountSatang: number,
+  metadata?: AllocationMetadata,
 ): Promise<AllocationRecord> {
   validateMonth(month);
   validateAmount(amountSatang);
@@ -364,6 +424,7 @@ export async function updateAllocation(
         const updatedAllocation: AllocationRecord = {
           ...existing,
           ...normalized,
+          ...(metadata ? normalizeAllocationMetadata(metadata) : {}),
           amountSatang,
           updatedAt: Date.now(),
         };

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   calculateAllocationTotals,
+  formatBudgetMonth,
   formatSatangAsBahtInput,
+  formatSatangAsCurrency,
   getDefaultBudgetMonth,
   MoneyInputError,
   parseBahtToSatang,
@@ -35,5 +37,11 @@ describe("money helpers", () => {
   it("defaults new plans to the month after income is received", () => {
     expect(getDefaultBudgetMonth(new Date(2026, 11, 31))).toBe("2027-01");
     expect(getDefaultBudgetMonth(new Date(2026, 0, 31))).toBe("2026-02");
+  });
+
+  it("formats budget values for Thai and English without changing stored amounts", () => {
+    expect(formatSatangAsCurrency(123456, "en")).toContain("THB");
+    expect(formatBudgetMonth("2026-01", "en")).toContain("January");
+    expect(formatBudgetMonth("2026-01", "th")).toContain("มกราคม");
   });
 });

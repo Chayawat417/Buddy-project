@@ -1,7 +1,9 @@
 import { useRegisterSW } from "virtual:pwa-register/react";
 import { useState } from "react";
+import { useLanguage } from "../../i18n";
 
 export default function PwaStatus() {
+  const { t } = useLanguage();
   const {
     needRefresh: [needRefresh],
     offlineReady: [offlineReady],
@@ -15,25 +17,25 @@ export default function PwaStatus() {
     <aside aria-live="polite" className="pwa-notice">
       {needRefresh ? (
         <>
-          <p>มี Buddy เวอร์ชันใหม่พร้อมใช้งาน บันทึกข้อมูลที่กำลังแก้ก่อนอัปเดต</p>
+          <p>{t("pwa.updateNotice")}</p>
           <button
             className="button button-primary"
             onClick={() => void updateServiceWorker(true)}
             type="button"
           >
-            อัปเดตแอป
+            {t("pwa.update")}
           </button>
         </>
       ) : (
-        <p>Buddy พร้อมใช้งานออฟไลน์แล้ว</p>
+        <p>{t("pwa.offlineReady")}</p>
       )}
       <button
-        aria-label="ปิดข้อความสถานะแอป"
+        aria-label={t("pwa.dismissLabel")}
         className="button button-secondary"
         onClick={() => setIsDismissed(true)}
         type="button"
       >
-        ปิด
+        {t("pwa.dismiss")}
       </button>
     </aside>
   );
