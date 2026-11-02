@@ -4,7 +4,13 @@ import AllocationRow from "./AllocationRow";
 import MonthlyComparison from "./MonthlyComparison";
 import { formatBudgetMonth, formatSatangAsCurrency, getDefaultBudgetMonth } from "../../domain/money";
 import { listBudgetCategories } from "./categoryRepository";
+import {
+  getBudgetCategoryOrder,
+  sortBudgetCategoriesByOrder,
+  sortAllocationsByCategoryOrder,
+} from "./categoryOrderRepository";
 import { useAllocationPlanner } from "./useAllocationPlanner";
+import { useLanguage } from "../../i18n";
 
 interface AllocationPlannerProps {
   profileId: string;
@@ -15,40 +21,58 @@ export default function AllocationPlanner({
   profileId,
   profileName,
 }: AllocationPlannerProps) {
+  const { locale, t } = useLanguage();
   const [month, setMonth] = useState(getDefaultBudgetMonth);
   const [isComparisonOpen, setIsComparisonOpen] = useState(false);
   const [categories, setCategories] = useState<BudgetCategoryRecord[]>([]);
-  const [categoryError, setCategoryError] = useState("");
+  const [allCategories, setAllCategories] = useState<BudgetCategoryRecord[]>([]);
+  const [categoryOrder, setCategoryOrder] = useState<string[]>([]);
+  const [hasCategoryError, setHasCategoryError] = useState(false);
   const planner = useAllocationPlanner(profileId, month);
 
   useEffect(() => {
     let isMounted = true;
-    void listBudgetCategories()
-      .then((result) => {
-        if (isMounted) setCategories(result);
+    void Promise.all([
+      listBudgetCategories(true),
+      getBudgetCategoryOrder(),
+    ])
+      .then(([allCategories, order]) => {
+        if (isMounted) {
+          setAllCategories(allCategories);
+          setCategories(
+            sortBudgetCategoriesByOrder(
+              allCategories.filter((category) => category.isActive),
+              order,
+            ),
+          );
+          setCategoryOrder(order);
+        }
       })
       .catch(() => {
         if (isMounted) {
-          setCategoryError("โหลดรายการหมวดไม่สำเร็จ กรุณารีเฟรชหน้า");
+          setHasCategoryError(true);
         }
       });
     return () => {
       isMounted = false;
     };
   }, []);
+  const orderedAllocations = sortAllocationsByCategoryOrder(
+    planner.allocations,
+    allCategories,
+    categoryOrder,
+  );
 
   return (
     <section className="budget-card" aria-labelledby="budget-title">
       <div className="budget-heading">
         <div>
-          <p className="eyebrow">งบประมาณของ {profileName}</p>
-          <h2 id="budget-title">แผนจัดสรรรายเดือน</h2>
-          <p className="budget-hint">
-            ใส่รายได้ที่ได้รับสิ้นเดือนก่อน แล้วจัดสรรสำหรับเดือนถัดไป
-          </p>
+          <p className="eyebrow">{t("budget.eyebrow", { name: profileName })}</p>
+          <h2 id="budget-title">{t("budget.title")}</h2>
+          <p className="budget-hint">{t("budget.hint")}</p>
         </div>
         <div className="month-field">
-          <label htmlFor="budget-month">เดือนงบประมาณ</label>
+          <label htmlFor="budget-month">{t("budget.month")}</label>
           <input
             disabled={planner.isCopyingPreviousMonth}
             id="budget-month"
@@ -63,11 +87,11 @@ export default function AllocationPlanner({
             type="button"
           >
             {planner.isCopyingPreviousMonth
-              ? "กำลังคัดลอก…"
-              : "คัดลอกหมวดจากเดือนก่อน"}
+              ? t("budget.copying")
+              : t("budget.copyPrevious")}
           </button>
           <p className="field-hint">
-            เพิ่มเฉพาะหมวดที่ยังไม่มี และไม่คัดลอกรายได้
+            {t("budget.copyHint")}
           </p>
         </div>
       </div>
@@ -77,37 +101,37 @@ export default function AllocationPlanner({
         onSubmit={(event) => void planner.handleIncomeSubmit(event)}
       >
         <div>
-          <label htmlFor="monthly-income">รายได้สุทธิที่ได้รับ (บาท)</label>
-          <p className="field-hint">เป็นยอดเงินสำหรับจัดสรรในเดือนนี้</p>
+          <label htmlFor="monthly-income">{t("budget.income")}</label>
+          <p className="field-hint">{t("budget.incomeHint")}</p>
         </div>
         <input
           id="monthly-income"
           inputMode="decimal"
           min="0"
           onChange={(event) => planner.setIncome(event.target.value)}
-          placeholder="เช่น 35000.00"
+          placeholder={t("budget.incomePlaceholder")}
           required
           step="0.01"
           type="number"
           value={planner.income}
         />
         <button className="button button-primary" type="submit">
-          บันทึกรายได้
+          {t("budget.saveIncome")}
         </button>
       </form>
 
       <div className="reconciliation" role="status" aria-live="polite">
         <div>
-          <span>รายได้</span>
+          <span>{t("budget.incomeSummary")}</span>
           <strong>
             {planner.incomeSatang === null
               ? "—"
-              : formatSatangAsCurrency(planner.incomeSatang)}
+              : formatSatangAsCurrency(planner.incomeSatang, locale)}
           </strong>
         </div>
         <div>
-          <span>จัดสรรแล้ว</span>
-          <strong>{formatSatangAsCurrency(planner.allocatedSatang)}</strong>
+          <span>{t("budget.allocated")}</span>
+          <strong>{formatSatangAsCurrency(planner.allocatedSatang, locale)}</strong>
         </div>
         <div
           className={
@@ -120,16 +144,16 @@ export default function AllocationPlanner({
         >
           <span>
             {!planner.totals
-              ? "กรอกรายได้"
+              ? t("budget.enterIncome")
               : planner.totals.remainingSatang < 0
-                ? "เกินรายได้"
+                ? t("budget.overIncome")
                 : planner.totals.remainingSatang === 0
-                  ? "จัดสรรครบ"
-                  : "ยังเหลือ"}
+                  ? t("budget.fullyAllocated")
+                  : t("budget.remaining")}
           </span>
           <strong>
             {planner.totals
-              ? formatSatangAsCurrency(Math.abs(planner.totals.remainingSatang))
+              ? formatSatangAsCurrency(Math.abs(planner.totals.remainingSatang), locale)
               : "—"}
           </strong>
         </div>
@@ -144,8 +168,8 @@ export default function AllocationPlanner({
           type="button"
         >
           {isComparisonOpen
-            ? "ซ่อนตารางเปรียบเทียบ"
-            : "เปรียบเทียบกับเดือนก่อน"}
+            ? t("budget.hideComparison")
+            : t("budget.showComparison")}
         </button>
         <section
           aria-labelledby="monthly-comparison-title"
@@ -153,7 +177,7 @@ export default function AllocationPlanner({
           hidden={!isComparisonOpen}
           id="monthly-comparison"
         >
-          <h3 id="monthly-comparison-title">เปรียบเทียบงบประมาณรายเดือน</h3>
+          <h3 id="monthly-comparison-title">{t("budget.comparisonTitle")}</h3>
           {isComparisonOpen && (
             <MonthlyComparison
               key={`${profileId}-${month}`}
@@ -165,12 +189,12 @@ export default function AllocationPlanner({
       </div>
 
       <div className="allocation-list">
-        <h3>หมวดงบประมาณ · {formatBudgetMonth(month)}</h3>
+        <h3>{t("budget.categoriesForMonth", { month: formatBudgetMonth(month, locale) })}</h3>
         {planner.isLoading ? (
-          <p role="status">กำลังโหลดงบประมาณ…</p>
+          <p role="status">{t("budget.loading")}</p>
         ) : (
           <div
-            aria-label="ตารางหมวดงบประมาณ"
+            aria-label={t("budget.tableLabel")}
             className="table-scroll"
             role="region"
             tabIndex={0}
@@ -178,13 +202,13 @@ export default function AllocationPlanner({
             <table>
               <thead>
                 <tr>
-                  <th scope="col">หมวด</th>
-                  <th scope="col">จำนวนเงิน (บาท)</th>
-                  <th scope="col">จัดการ</th>
+                  <th scope="col">{t("budget.category")}</th>
+                  <th scope="col">{t("budget.amount")}</th>
+                  <th scope="col">{t("budget.actions")}</th>
                 </tr>
               </thead>
               <tbody>
-                {planner.allocations.map((allocation, index) => (
+                {orderedAllocations.map((allocation, index) => (
                   <AllocationRow
                     allocation={allocation}
                     categories={categories}
@@ -198,7 +222,7 @@ export default function AllocationPlanner({
                 {planner.allocations.length === 0 && (
                   <tr>
                     <td className="empty-row" colSpan={3}>
-                      ยังไม่มีหมวดงบประมาณ เพิ่มหมวดแรกได้ด้านล่าง
+                      {t("budget.empty")}
                     </td>
                   </tr>
                 )}
@@ -207,9 +231,9 @@ export default function AllocationPlanner({
           </div>
         )}
 
-        {categoryError && (
+        {hasCategoryError && (
           <p className="error-message" role="alert">
-            {categoryError}
+            {t("budget.categoryLoadError")}
           </p>
         )}
         <form
@@ -217,7 +241,7 @@ export default function AllocationPlanner({
           onSubmit={(event) => void planner.handleAddAllocation(event)}
         >
           <div>
-            <label htmlFor="new-allocation-name">เลือกหมวดงบประมาณ</label>
+            <label htmlFor="new-allocation-name">{t("budget.chooseCategory")}</label>
             <select
               id="new-allocation-name"
               onChange={(event) => planner.setNewName(event.target.value)}
@@ -225,7 +249,7 @@ export default function AllocationPlanner({
               value={planner.newName}
             >
               <option disabled value="">
-                {categories.length > 0 ? "เลือกหมวด" : "ไปที่ตั้งค่าหมวดก่อน"}
+                {categories.length > 0 ? t("budget.choose") : t("budget.goToCategories")}
               </option>
               {categories.map((category) => (
                 <option key={category.id} value={category.name}>
@@ -235,12 +259,12 @@ export default function AllocationPlanner({
             </select>
           </div>
           <div>
-            <label htmlFor="new-allocation-amount">จำนวนเงิน (บาท)</label>
+            <label htmlFor="new-allocation-amount">{t("budget.amount")}</label>
             <input
               id="new-allocation-amount"
               inputMode="decimal"
               onChange={(event) => planner.setNewAmount(event.target.value)}
-              placeholder="0.00"
+              placeholder={t("budget.amountPlaceholder")}
               type="text"
               value={planner.newAmount}
             />
@@ -250,7 +274,7 @@ export default function AllocationPlanner({
             disabled={categories.length === 0}
             type="submit"
           >
-            เพิ่มรายการงบประมาณ
+            {t("budget.add")}
           </button>
         </form>
       </div>

@@ -1,66 +1,104 @@
 import { useState } from "react";
+import { useLanguage } from "../../i18n";
+import type { TranslationKey } from "../../i18n";
+import {
+  applyThemePreferences,
+  defaultThemePreferences,
+  getThemeSelection,
+  parseThemeSelection,
+  readThemePreferences,
+  saveThemePreferences,
+} from "./themePreferences";
+import type {
+  ColorMode,
+  ThemePreferences,
+  VisualTheme,
+} from "./themePreferences";
 
-type Theme = "light" | "dark";
+const themeOptions: ReadonlyArray<{
+  value: VisualTheme;
+  translationKey: TranslationKey;
+}> = [
+  { value: "classic", translationKey: "theme.classic" },
+  { value: "pit-wall", translationKey: "theme.pitWall" },
+  { value: "heritage", translationKey: "theme.heritage" },
+  { value: "telemetry", translationKey: "theme.telemetry" },
+  { value: "cockpit", translationKey: "theme.cockpit" },
+  { value: "editorial", translationKey: "theme.editorial" },
+];
 
-const themeStorageKey = "buddy-theme";
+const colorModes: ReadonlyArray<{
+  value: ColorMode;
+  translationKey: TranslationKey;
+}> = [
+  { value: "light", translationKey: "theme.light" },
+  { value: "dark", translationKey: "theme.dark" },
+];
 
-function getInitialTheme(): Theme {
+function getInitialPreferences(): ThemePreferences {
+  let preferences = defaultThemePreferences;
   try {
-    const savedTheme = window.localStorage.getItem(themeStorageKey);
-    const theme = savedTheme === "dark" ? "dark" : "light";
-    document.documentElement.dataset.theme = theme;
-    const themeColor = document.querySelector<HTMLMetaElement>(
-      'meta[name="theme-color"]',
-    );
-    if (themeColor) {
-      themeColor.content = theme === "dark" ? "#151b18" : "#f5f6f2";
-    }
-    return theme;
+    preferences = readThemePreferences(window.localStorage);
   } catch {
-    document.documentElement.dataset.theme = "light";
-    return "light";
+    // Keep the recommended in-memory defaults when storage is unavailable.
   }
+  applyThemePreferences(preferences);
+  return preferences;
 }
 
 export default function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>(getInitialTheme);
+  const { t } = useLanguage();
+  const [preferences, setPreferences] = useState<ThemePreferences>(
+    getInitialPreferences,
+  );
   const [storageWarning, setStorageWarning] = useState(false);
-  const nextTheme: Theme = theme === "dark" ? "light" : "dark";
 
-  function toggleTheme(): void {
-    const updatedTheme = nextTheme;
-    document.documentElement.dataset.theme = updatedTheme;
-    setTheme(updatedTheme);
-
-    const themeColor = document.querySelector<HTMLMetaElement>(
-      'meta[name="theme-color"]',
-    );
-    if (themeColor) {
-      themeColor.content = updatedTheme === "dark" ? "#151b18" : "#f5f6f2";
-    }
-
+  function updatePreferences(next: ThemePreferences): void {
+    applyThemePreferences(next);
+    setPreferences(next);
     try {
-      window.localStorage.setItem(themeStorageKey, updatedTheme);
-      setStorageWarning(false);
+      setStorageWarning(!saveThemePreferences(window.localStorage, next));
     } catch {
       setStorageWarning(true);
     }
   }
 
+  function handleSelectionChange(value: string): void {
+    const next = parseThemeSelection(value);
+    if (next) updatePreferences(next);
+  }
+
   return (
     <div className="theme-toggle">
-      <button
-        aria-label={`เปลี่ยนเป็นโหมด${nextTheme === "dark" ? "มืด" : "สว่าง"}`}
-        aria-pressed={theme === "dark"}
-        className="button button-secondary"
-        onClick={toggleTheme}
-        type="button"
-      >
-        {nextTheme === "dark" ? "🌙 เปิดโหมดมืด" : "☀️ เปิดโหมดสว่าง"}
-      </button>
+      <div className="theme-controls">
+        <div className="theme-select-control">
+          <label className="theme-select-label" htmlFor="theme-selection">
+            {t("theme.selectorLabel")}
+          </label>
+          <select
+            className="theme-select"
+            id="theme-selection"
+            onChange={(event) => handleSelectionChange(event.target.value)}
+            value={getThemeSelection(preferences)}
+          >
+            {themeOptions.map(({ value, translationKey }) => (
+              <optgroup key={value} label={t(translationKey)}>
+                {colorModes.map((mode) => (
+                  <option
+                    key={`${value}:${mode.value}`}
+                    value={`${value}:${mode.value}`}
+                  >
+                    {`${t(translationKey)} · ${t(mode.translationKey)}`}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+      </div>
       {storageWarning && (
         <span className="theme-warning" role="status">
-          เปลี่ยนโหมดแล้ว แต่เบราว์เซอร์ไม่สามารถจำการตั้งค่านี้ได้
+          {t("theme.storageWarning")}
         </span>
       )}
     </div>

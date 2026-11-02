@@ -1,3 +1,5 @@
+import type { Locale } from "../i18n";
+
 export class MoneyInputError extends Error {
   constructor() {
     super("Enter a non-negative amount with no more than two decimal places.");
@@ -30,8 +32,8 @@ export function formatSatangAsBahtInput(satang: number): string {
   return `${baht}.${remainingSatang}`;
 }
 
-export function formatSatangAsCurrency(satang: number): string {
-  return new Intl.NumberFormat("th-TH", {
+export function formatSatangAsCurrency(satang: number, locale: Locale = "th"): string {
+  return new Intl.NumberFormat(locale === "th" ? "th-TH" : "en-US", {
     style: "currency",
     currency: "THB",
     minimumFractionDigits: 2,
@@ -61,13 +63,13 @@ export function getDefaultBudgetMonth(now = new Date()): string {
   return `${year}-${month}`;
 }
 
-export function formatBudgetMonth(month: string): string {
+export function formatBudgetMonth(month: string, locale: Locale = "th"): string {
   const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(month);
-  if (!match) return "เลือกเดือนงบประมาณ";
+  if (!match) return locale === "th" ? "เลือกเดือนงบประมาณ" : "Choose a budget month";
 
   const year = Number(match[1]);
   const monthNumber = Number(match[2]);
-  return new Intl.DateTimeFormat("th-TH", {
+  return new Intl.DateTimeFormat(locale === "th" ? "th-TH" : "en-US", {
     month: "long",
     year: "numeric",
   }).format(new Date(year, monthNumber - 1, 1));

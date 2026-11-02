@@ -8,7 +8,8 @@ import {
 import {
   formatSatangAsCurrency,
 } from "../../domain/money";
-import { getBudgetReport } from "./reportRepository";
+import { observeBudgetReport } from "./reportRepository";
+import { useLanguage } from "../../i18n";
 
 type ReportMode = "quarter" | "year";
 
@@ -17,11 +18,11 @@ interface ReportViewerProps {
   profileName: string;
 }
 
-function formatMonth(month: string): string {
+function formatMonth(month: string, locale: "th" | "en"): string {
   const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(month);
   if (!match) return "—";
 
-  return new Intl.DateTimeFormat("th-TH-u-ca-gregory", {
+  return new Intl.DateTimeFormat(locale === "th" ? "th-TH-u-ca-gregory" : "en-US", {
     month: "long",
     year: "numeric",
   }).format(new Date(Number(match[1]), Number(match[2]) - 1, 1));
@@ -31,6 +32,7 @@ export default function ReportViewer({
   profileId,
   profileName,
 }: ReportViewerProps) {
+  const { locale, t } = useLanguage();
   const now = new Date();
   const [mode, setMode] = useState<ReportMode>("quarter");
   const [year, setYear] = useState(now.getFullYear());
@@ -40,7 +42,7 @@ export default function ReportViewer({
   );
   const [report, setReport] = useState<BudgetReport | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState("");
+  const [errorKey, setErrorKey] = useState<"report.invalidYear" | "report.loadingError" | null>(null);
 
   useEffect(() => {
     let nextPeriod: ReportPeriod;
@@ -52,72 +54,75 @@ export default function ReportViewer({
       setPeriod(nextPeriod);
     } catch {
       setReport(null);
-      setErrorMessage("กรุณาเลือกปีระหว่าง ค.ศ. 1900 ถึง 9999");
+      setErrorKey("report.invalidYear");
       setIsLoading(false);
       return;
     }
 
-    let isMounted = true;
     setIsLoading(true);
-    setErrorMessage("");
-    void getBudgetReport(profileId, nextPeriod)
-      .then((result) => {
-        if (isMounted) setReport(result);
-      })
-      .catch(() => {
-        if (isMounted) {
-          setReport(null);
-          setErrorMessage("โหลดรายงานไม่สำเร็จ กรุณาลองอีกครั้ง");
-        }
-      })
-      .finally(() => {
-        if (isMounted) setIsLoading(false);
-      });
-
-    return () => {
-      isMounted = false;
-    };
+    setErrorKey(null);
+    // Subscribe instead of loading once, so saved budgets, income changes
+    // and restored backups appear without reloading the page.
+    return observeBudgetReport(
+      profileId,
+      nextPeriod,
+      (result) => {
+        setReport(result);
+        setErrorKey(null);
+        setIsLoading(false);
+      },
+      () => {
+        setReport(null);
+        setErrorKey("report.loadingError");
+        setIsLoading(false);
+      },
+    );
   }, [mode, year, quarter, profileId]);
 
-  const periodLabel =
-    mode === "quarter" ? `ไตรมาส ${quarter} / ${year}` : `ปี ${year}`;
+  const periodLabel = mode === "quarter"
+    ? `${t("report.quarter")} ${quarter} / ${year}`
+    : t("report.yearValue", { year });
+  const quarterMonths = locale === "th"
+    ? ["ม.ค.–มี.ค.", "เม.ย.–มิ.ย.", "ก.ค.–ก.ย.", "ต.ค.–ธ.ค."]
+    : ["Jan–Mar", "Apr–Jun", "Jul–Sep", "Oct–Dec"];
 
   return (
     <section className="report-card" aria-labelledby="report-title">
       <div className="report-controls no-print">
         <div>
-          <p className="eyebrow">สรุปสำหรับ {profileName}</p>
-          <h2 id="report-title">รายงานงบประมาณ</h2>
+          <p className="eyebrow">{t("report.eyebrow", { name: profileName })}</p>
+          <h2 id="report-title">{t("report.title")}</h2>
         </div>
         <div className="report-filters">
           <div>
-            <label htmlFor="report-mode">ช่วงรายงาน</label>
+            <label htmlFor="report-mode">{t("report.period")}</label>
             <select
               id="report-mode"
               onChange={(event) => setMode(event.target.value as ReportMode)}
               value={mode}
             >
-              <option value="quarter">รายไตรมาส</option>
-              <option value="year">รายปี</option>
+              <option value="quarter">{t("report.quarterly")}</option>
+              <option value="year">{t("report.yearly")}</option>
             </select>
           </div>
           {mode === "quarter" && (
             <div>
-              <label htmlFor="report-quarter">ไตรมาส</label>
+              <label htmlFor="report-quarter">{t("report.quarter")}</label>
               <select
                 id="report-quarter"
                 onChange={(event) => setQuarter(Number(event.target.value))}
                 value={quarter}
               >
-                <option value={1}>ไตรมาส 1 (ม.ค.–มี.ค.)</option>
-                <option value={2}>ไตรมาส 2 (เม.ย.–มิ.ย.)</option>
-                <option value={3}>ไตรมาส 3 (ก.ค.–ก.ย.)</option>
-                <option value={4}>ไตรมาส 4 (ต.ค.–ธ.ค.)</option>
+                {quarterMonths.map((months, index) => (
+                  <option key={months} value={index + 1}>
+                    {t("report.quarterOption", { quarter: index + 1, months })}
+                  </option>
+                ))}
               </select>
             </div>
           )}
           <div>
-            <label htmlFor="report-year">ปี ค.ศ.</label>
+            <label htmlFor="report-year">{t("report.year")}</label>
             <input
               id="report-year"
               max={9999}
@@ -133,73 +138,75 @@ export default function ReportViewer({
             onClick={() => window.print()}
             type="button"
           >
-            พิมพ์ / บันทึก PDF
+            {t("report.print")}
           </button>
         </div>
       </div>
 
       {isLoading && (
         <p className="no-print" role="status">
-          กำลังสร้างรายงาน…
+          {t("report.loading")}
         </p>
       )}
-      {errorMessage && (
+      {errorKey && (
         <p className="error-message no-print" role="alert">
-          {errorMessage}
+          {t(errorKey)}
         </p>
       )}
 
-      {!isLoading && !errorMessage && report && (
+      {!isLoading && !errorKey && report && (
         <div className="report-content">
           <header className="report-document-header">
-            <p className="eyebrow">Buddy · รายงานงบประมาณ</p>
+            <p className="eyebrow">{t("report.documentTitle")}</p>
             <h2>{profileName}</h2>
             <p>{periodLabel}</p>
             <small>
-              {formatMonth(period.startMonth)} – {formatMonth(period.endMonth)}
+              {formatMonth(period.startMonth, locale)} – {formatMonth(period.endMonth, locale)}
             </small>
           </header>
 
           <div className="report-summary">
             <div>
-              <span>รายได้ที่บันทึก</span>
-              <strong>{formatSatangAsCurrency(report.incomeTotalSatang)}</strong>
+              <span>{t("report.incomeRecorded")}</span>
+              <strong>{formatSatangAsCurrency(report.incomeTotalSatang, locale)}</strong>
               <small>
-                {report.monthsWithIncome} จาก {report.months.length} เดือน
+                {t("report.incomeMonthCount", {
+                  recorded: report.monthsWithIncome,
+                  total: report.months.length,
+                })}
               </small>
             </div>
             <div>
-              <span>จัดสรรทั้งหมด</span>
-              <strong>{formatSatangAsCurrency(report.allocatedTotalSatang)}</strong>
-              <small>รวมทุกหมวดในช่วงรายงาน</small>
+              <span>{t("report.totalAllocated")}</span>
+              <strong>{formatSatangAsCurrency(report.allocatedTotalSatang, locale)}</strong>
+              <small>{t("report.periodCategoryTotal")}</small>
             </div>
             <div>
-              <span>รายได้ที่บันทึก − จัดสรร</span>
+              <span>{t("report.incomeMinusAllocated")}</span>
               <strong
                 className={
                   report.remainingTotalSatang < 0 ? "report-over" : undefined
                 }
               >
-                {formatSatangAsCurrency(report.remainingTotalSatang)}
+                {formatSatangAsCurrency(report.remainingTotalSatang, locale)}
               </strong>
-              <small>ค่าติดลบหมายถึงจัดสรรเกินรายได้ที่บันทึก</small>
+              <small>{t("report.negativeMeansOver")}</small>
             </div>
           </div>
 
           {report.monthsMissingIncome > 0 && (
             <p className="report-warning">
-              มี {report.monthsMissingIncome} เดือนที่ยังไม่มีรายได้บันทึก
-              ยอดรายได้คงเหลือจึงเทียบกับรายได้ที่บันทึกเท่านั้น
+              {t("report.missingIncome", { count: report.monthsMissingIncome })}
             </p>
           )}
 
           <div className="report-table-section">
-            <h3>สรุปรายเดือน</h3>
+            <h3>{t("report.monthlySummary")}</h3>
             {report.months.length === 0 ? (
-              <p>ไม่มีข้อมูลในช่วงเวลานี้</p>
+              <p>{t("report.noData")}</p>
             ) : (
               <div
-                aria-label="ตารางสรุปรายเดือน"
+                aria-label={t("report.monthTable")}
                 className="table-scroll"
                 role="region"
                 tabIndex={0}
@@ -207,22 +214,22 @@ export default function ReportViewer({
                 <table className="report-table">
                   <thead>
                     <tr>
-                      <th scope="col">เดือน</th>
-                      <th scope="col">รายได้</th>
-                      <th scope="col">จัดสรร</th>
-                      <th scope="col">คงเหลือ</th>
+                      <th scope="col">{t("report.month")}</th>
+                      <th scope="col">{t("report.income")}</th>
+                      <th scope="col">{t("report.allocated")}</th>
+                      <th scope="col">{t("report.remaining")}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {report.months.map((month) => (
                       <tr key={month.month}>
-                        <th scope="row">{formatMonth(month.month)}</th>
+                        <th scope="row">{formatMonth(month.month, locale)}</th>
                         <td>
                           {month.incomeSatang === null
-                            ? "ยังไม่บันทึก"
-                            : formatSatangAsCurrency(month.incomeSatang)}
+                            ? t("comparison.notSaved")
+                            : formatSatangAsCurrency(month.incomeSatang, locale)}
                         </td>
-                        <td>{formatSatangAsCurrency(month.allocatedSatang)}</td>
+                        <td>{formatSatangAsCurrency(month.allocatedSatang, locale)}</td>
                         <td
                           className={
                             month.remainingSatang !== null &&
@@ -233,7 +240,7 @@ export default function ReportViewer({
                         >
                           {month.remainingSatang === null
                             ? "—"
-                            : formatSatangAsCurrency(month.remainingSatang)}
+                            : formatSatangAsCurrency(month.remainingSatang, locale)}
                         </td>
                       </tr>
                     ))}
@@ -244,12 +251,12 @@ export default function ReportViewer({
           </div>
 
           <div className="report-table-section">
-            <h3>สรุปตามหมวดงบประมาณ</h3>
+            <h3>{t("report.categorySummary")}</h3>
             {report.categories.length === 0 ? (
-              <p>ไม่มีรายการจัดสรรในช่วงเวลานี้</p>
+              <p>{t("report.noAllocations")}</p>
             ) : (
               <div
-                aria-label="ตารางสรุปตามหมวดงบประมาณ"
+                aria-label={t("report.categoryTable")}
                 className="table-scroll"
                 role="region"
                 tabIndex={0}
@@ -257,15 +264,15 @@ export default function ReportViewer({
                 <table className="report-table category-report-table">
                   <thead>
                     <tr>
-                      <th scope="col">หมวด</th>
-                      <th scope="col">ยอดรวมที่จัดสรร</th>
+                      <th scope="col">{t("report.category")}</th>
+                      <th scope="col">{t("report.totalAmount")}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {report.categories.map((category) => (
                       <tr key={category.name.toLocaleLowerCase()}>
                         <th scope="row">{category.name}</th>
-                        <td>{formatSatangAsCurrency(category.amountSatang)}</td>
+                        <td>{formatSatangAsCurrency(category.amountSatang, locale)}</td>
                       </tr>
                     ))}
                   </tbody>

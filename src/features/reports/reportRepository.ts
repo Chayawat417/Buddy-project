@@ -1,3 +1,4 @@
+import { liveQuery } from "dexie";
 import {
   buddyDatabase,
   type AllocationRecord,
@@ -68,4 +69,21 @@ export async function getBudgetReport(
       );
     },
   );
+}
+
+/**
+ * Keeps a report in sync with IndexedDB: emits once on subscribe and again
+ * whenever income, allocations or profiles in the report's scope change
+ * (including a full backup restore). Returns an unsubscribe function.
+ */
+export function observeBudgetReport(
+  profileId: string,
+  period: ReportPeriod,
+  onReport: (report: BudgetReport) => void,
+  onError: (error: unknown) => void,
+): () => void {
+  const subscription = liveQuery(() =>
+    getBudgetReport(profileId, period),
+  ).subscribe({ next: onReport, error: onError });
+  return () => subscription.unsubscribe();
 }

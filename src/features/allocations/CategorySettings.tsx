@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import type { BudgetCategoryRecord } from "../../data/buddyDatabase";
+import { useLanguage } from "../../i18n";
+import type { TranslationKey } from "../../i18n";
 import {
   BudgetCategoryAlreadyExistsError,
   BudgetCategoryNameError,
@@ -9,47 +11,60 @@ import {
   renameBudgetCategory,
   setBudgetCategoryActive,
 } from "./categoryRepository";
+import {
+  getBudgetCategoryOrder,
+  saveBudgetCategoryOrder,
+  sortBudgetCategoriesByOrder,
+} from "./categoryOrderRepository";
 
 interface CategorySettingsProps {
   onBack: () => void;
 }
 
-function getErrorMessage(error: unknown): string {
+function getErrorMessageKey(error: unknown): TranslationKey {
   if (error instanceof BudgetCategoryNameError) {
     return error.code === "required"
-      ? "กรุณากรอกชื่อหมวด"
-      : "ชื่อหมวดต้องไม่เกิน 60 ตัวอักษร";
+      ? "category.error.required"
+      : "category.error.tooLong";
   }
   if (error instanceof BudgetCategoryAlreadyExistsError) {
     return error.conflictsWithExistingAllocation
-      ? "เปลี่ยนย้อนหลังไม่ได้ เพราะมีชื่อหมวดนี้อยู่ในเดือนเดียวกันแล้ว"
-      : "มีหมวดชื่อนี้อยู่แล้ว";
+      ? "category.error.conflictHistorical"
+      : "category.error.duplicate";
   }
-  return "บันทึกหมวดไม่สำเร็จ กรุณาลองอีกครั้ง";
+  return "category.error.save";
 }
 
 export default function CategorySettings({ onBack }: CategorySettingsProps) {
+  const { t } = useLanguage();
   const [categories, setCategories] = useState<BudgetCategoryRecord[]>([]);
   const [newName, setNewName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [renameHistorical, setRenameHistorical] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [errorMessage, setErrorMessage] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
+  const [isOrderSaving, setIsOrderSaving] = useState(false);
+  const [draggedCategoryId, setDraggedCategoryId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<TranslationKey | null>(null);
+  const [successMessage, setSuccessMessage] = useState<TranslationKey | null>(null);
 
   async function refreshCategories(): Promise<void> {
-    setCategories(await listBudgetCategories(true));
+    const [allCategories, order] = await Promise.all([
+      listBudgetCategories(true),
+      getBudgetCategoryOrder(),
+    ]);
+    setCategories(sortBudgetCategoriesByOrder(allCategories, order));
   }
 
   useEffect(() => {
     let isMounted = true;
-    void listBudgetCategories(true)
-      .then((result) => {
-        if (isMounted) setCategories(result);
+    void Promise.all([listBudgetCategories(true), getBudgetCategoryOrder()])
+      .then(([result, order]) => {
+        if (!isMounted) return;
+        setCategories(sortBudgetCategoriesByOrder(result, order));
       })
       .catch(() => {
-        if (isMounted) setErrorMessage("เปิดรายการหมวดไม่สำเร็จ กรุณารีเฟรชหน้า");
+        if (isMounted) setErrorMessage("category.loadingError");
       })
       .finally(() => {
         if (isMounted) setIsLoading(false);
@@ -59,17 +74,48 @@ export default function CategorySettings({ onBack }: CategorySettingsProps) {
     };
   }, []);
 
+  async function reorderCategory(fromId: string, toIndex: number): Promise<void> {
+    const fromIndex = categories.findIndex((category) => category.id === fromId);
+    if (
+      fromIndex < 0 ||
+      toIndex < 0 ||
+      toIndex >= categories.length ||
+      fromIndex === toIndex
+    ) {
+      return;
+    }
+
+    const nextCategories = [...categories];
+    const [movedCategory] = nextCategories.splice(fromIndex, 1);
+    nextCategories.splice(toIndex, 0, movedCategory);
+    setIsOrderSaving(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    try {
+      await saveBudgetCategoryOrder(
+        nextCategories.map((category) => category.id),
+      );
+      setCategories(nextCategories);
+      setSuccessMessage("category.orderSaved");
+    } catch {
+      setErrorMessage("category.orderSaveError");
+    } finally {
+      setIsOrderSaving(false);
+      setDraggedCategoryId(null);
+    }
+  }
+
   async function handleAdd(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    setErrorMessage("");
-    setSuccessMessage("");
+    setErrorMessage(null);
+    setSuccessMessage(null);
     try {
       await createBudgetCategory(newName);
       await refreshCategories();
       setNewName("");
-      setSuccessMessage("เพิ่มหมวดในรายการแล้ว");
+      setSuccessMessage("category.added");
     } catch (error) {
-      setErrorMessage(getErrorMessage(error));
+      setErrorMessage(getErrorMessageKey(error));
     }
   }
 
@@ -77,8 +123,8 @@ export default function CategorySettings({ onBack }: CategorySettingsProps) {
     setEditingId(category.id);
     setEditingName(category.name);
     setRenameHistorical(false);
-    setErrorMessage("");
-    setSuccessMessage("");
+    setErrorMessage(null);
+    setSuccessMessage(null);
   }
 
   async function handleRename(
@@ -86,12 +132,12 @@ export default function CategorySettings({ onBack }: CategorySettingsProps) {
     category: BudgetCategoryRecord,
   ): Promise<void> {
     event.preventDefault();
-    setErrorMessage("");
-    setSuccessMessage("");
+    setErrorMessage(null);
+    setSuccessMessage(null);
     if (
       renameHistorical &&
       !window.confirm(
-        `เปลี่ยนชื่อหมวด "${category.name}" ย้อนหลังในทุกเดือนและทุกโปรไฟล์หรือไม่?`,
+        t("category.renameConfirm", { name: category.name }),
       )
     ) {
       return;
@@ -101,31 +147,23 @@ export default function CategorySettings({ onBack }: CategorySettingsProps) {
       await renameBudgetCategory(category.id, editingName, renameHistorical);
       await refreshCategories();
       setEditingId(null);
-      setSuccessMessage(
-        renameHistorical
-          ? "เปลี่ยนชื่อหมวดในรายการและข้อมูลย้อนหลังแล้ว"
-          : "เปลี่ยนชื่อหมวดสำหรับการเลือกใหม่แล้ว ข้อมูลเดิมยังใช้ชื่อเดิม",
-      );
+      setSuccessMessage(renameHistorical ? "category.renamedAll" : "category.renamedNew");
     } catch (error) {
-      setErrorMessage(getErrorMessage(error));
+      setErrorMessage(getErrorMessageKey(error));
     }
   }
 
   async function handleVisibilityChange(
     category: BudgetCategoryRecord,
   ): Promise<void> {
-    setErrorMessage("");
-    setSuccessMessage("");
+    setErrorMessage(null);
+    setSuccessMessage(null);
     try {
       await setBudgetCategoryActive(category.id, !category.isActive);
       await refreshCategories();
-      setSuccessMessage(
-        category.isActive
-          ? "ซ่อนหมวดจากตัวเลือกใหม่แล้ว ข้อมูลเดิมยังอยู่"
-          : "นำหมวดกลับมาแสดงในตัวเลือกแล้ว",
-      );
+      setSuccessMessage(category.isActive ? "category.hidden" : "category.shown");
     } catch (error) {
-      setErrorMessage(getErrorMessage(error));
+      setErrorMessage(getErrorMessageKey(error));
     }
   }
 
@@ -133,20 +171,18 @@ export default function CategorySettings({ onBack }: CategorySettingsProps) {
     <section className="settings-card" aria-labelledby="category-settings-title">
       <div className="settings-heading">
         <div>
-          <p className="eyebrow">รายการใช้ร่วมกันทุกโปรไฟล์</p>
-          <h1 id="category-settings-title">ตั้งค่าหมวดงบประมาณ</h1>
-          <p className="settings-description">
-            เพิ่มและจัดการชื่อหมวดที่จะแสดงให้เลือกในตารางรายเดือน
-          </p>
+          <p className="eyebrow">{t("category.settingsEyebrow")}</p>
+          <h1 id="category-settings-title">{t("category.settingsTitle")}</h1>
+          <p className="settings-description">{t("category.settingsDescription")}</p>
         </div>
         <button className="button button-secondary" onClick={onBack} type="button">
-          กลับไปหน้างบประมาณ
+          {t("category.back")}
         </button>
       </div>
 
       <form className="category-create-form" onSubmit={(event) => void handleAdd(event)}>
         <div>
-          <label htmlFor="new-budget-category">ชื่อหมวดใหม่</label>
+          <label htmlFor="new-budget-category">{t("category.new")}</label>
           <input
             id="new-budget-category"
             maxLength={60}
@@ -156,105 +192,182 @@ export default function CategorySettings({ onBack }: CategorySettingsProps) {
           />
         </div>
         <button className="button button-primary" type="submit">
-          เพิ่มหมวด
+          {t("category.add")}
         </button>
       </form>
 
       <p className="settings-hint">
-        การซ่อนหมวดจะเอาออกจากรายการเลือกใหม่ แต่ไม่ลบยอดที่บันทึกไว้
-        คุณสามารถนำหมวดที่ซ่อนกลับมาใช้ได้
+        {t("category.hideHint")}
       </p>
 
       {errorMessage && (
         <p className="error-message" role="alert">
-          {errorMessage}
+          {t(errorMessage)}
         </p>
       )}
       {successMessage && (
         <p className="success-message" role="status">
-          {successMessage}
+          {t(successMessage)}
         </p>
       )}
 
       {isLoading ? (
-        <p role="status">กำลังโหลดรายการหมวด…</p>
+        <p role="status">{t("category.loading")}</p>
       ) : categories.length === 0 ? (
-        <p className="empty-row">ยังไม่มีหมวด เพิ่มหมวดแรกได้ด้านบน</p>
+        <p className="empty-row">{t("category.empty")}</p>
       ) : (
-        <ul className="category-settings-list">
-          {categories.map((category) => (
-            <li
-              className={category.isActive ? "" : "is-hidden-category"}
-              key={category.id}
-            >
-              {editingId === category.id ? (
-                <form
-                  className="category-edit-form"
-                  onSubmit={(event) => void handleRename(event, category)}
-                >
-                  <div>
-                    <label htmlFor={`edit-category-${category.id}`}>
-                      ชื่อหมวด
+        <>
+          <h2 className="category-order-title">{t("category.orderTitle")}</h2>
+          <p className="settings-description">{t("category.orderHint")}</p>
+          <ul className="category-settings-list">
+            {categories.map((category) => (
+              <li
+                className={category.isActive ? "" : "is-hidden-category"}
+                key={category.id}
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const categoryId =
+                    event.dataTransfer.getData("text/plain") || draggedCategoryId;
+                  if (!categoryId) return;
+                  const targetIndex = categories.findIndex(
+                    (item) => item.id === category.id,
+                  );
+                  void reorderCategory(categoryId, targetIndex);
+                }}
+              >
+                {editingId === category.id ? (
+                  <form
+                    className="category-edit-form"
+                    onSubmit={(event) => void handleRename(event, category)}
+                  >
+                    <div>
+                      <label htmlFor={`edit-category-${category.id}`}>
+                        {t("category.name")}
+                      </label>
+                      <input
+                        autoFocus
+                        id={`edit-category-${category.id}`}
+                        maxLength={60}
+                        onChange={(event) => setEditingName(event.target.value)}
+                        required
+                        value={editingName}
+                      />
+                    </div>
+                    <label className="category-history-option">
+                      <input
+                        checked={renameHistorical}
+                        onChange={(event) =>
+                          setRenameHistorical(event.target.checked)
+                        }
+                        type="checkbox"
+                      />
+                      {t("category.renameHistorical")}
                     </label>
-                    <input
-                      autoFocus
-                      id={`edit-category-${category.id}`}
-                      maxLength={60}
-                      onChange={(event) => setEditingName(event.target.value)}
-                      required
-                      value={editingName}
-                    />
-                  </div>
-                  <label className="category-history-option">
-                    <input
-                      checked={renameHistorical}
-                      onChange={(event) =>
-                        setRenameHistorical(event.target.checked)
-                      }
-                      type="checkbox"
-                    />
-                    เปลี่ยนชื่อในข้อมูลย้อนหลังทุกโปรไฟล์ด้วย
-                  </label>
-                  <div className="category-settings-actions">
-                    <button className="button button-primary" type="submit">
-                      บันทึกชื่อ
-                    </button>
-                    <button
-                      className="button button-secondary"
-                      onClick={() => setEditingId(null)}
-                      type="button"
-                    >
-                      ยกเลิก
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <>
-                  <div className="category-settings-name">
-                    <strong>{category.name}</strong>
-                    {!category.isActive && <span>ซ่อนจากรายการเลือก</span>}
-                  </div>
-                  <div className="category-settings-actions">
-                    <button
-                      className="button button-secondary"
-                      onClick={() => beginRename(category)}
-                      type="button"
-                    >
-                      เปลี่ยนชื่อ
-                    </button>
-                    <button
-                      className="button button-secondary"
-                      onClick={() => void handleVisibilityChange(category)}
-                      type="button"
-                    >
-                      {category.isActive ? "ซ่อนหมวด" : "แสดงหมวด"}
-                    </button>
-                  </div>
-                </>
-              )}
-            </li>
-          ))}
-        </ul>
+                    <div className="category-settings-actions">
+                      <button className="button button-primary" type="submit">
+                        {t("category.saveName")}
+                      </button>
+                      <button
+                        className="button button-secondary"
+                        onClick={() => setEditingId(null)}
+                        type="button"
+                      >
+                        {t("profile.cancel")}
+                      </button>
+                    </div>
+                  </form>
+                ) : (
+                  <>
+                    <div className="category-settings-name">
+                      <button
+                        aria-label={t("category.dragCategory", {
+                          name: category.name,
+                        })}
+                        className="button button-secondary category-order-handle"
+                        draggable={!isOrderSaving}
+                        onDragEnd={() => setDraggedCategoryId(null)}
+                        onDragStart={(event) => {
+                          event.dataTransfer.effectAllowed = "move";
+                          event.dataTransfer.setData("text/plain", category.id);
+                          setDraggedCategoryId(category.id);
+                        }}
+                        type="button"
+                      >
+                        <span aria-hidden="true">☰</span>
+                      </button>
+                      <strong>{category.name}</strong>
+                      {!category.isActive && (
+                        <span>{t("category.hiddenStatus")}</span>
+                      )}
+                    </div>
+                    <div className="category-settings-actions">
+                      <button
+                        aria-label={t("category.moveUp", {
+                          name: category.name,
+                        })}
+                        className="button button-secondary"
+                        disabled={
+                          isOrderSaving || categories[0]?.id === category.id
+                        }
+                        onClick={() =>
+                          void reorderCategory(
+                            category.id,
+                            categories.findIndex(
+                              (item) => item.id === category.id,
+                            ) - 1,
+                          )
+                        }
+                        type="button"
+                      >
+                        ↑
+                      </button>
+                      <button
+                        aria-label={t("category.moveDown", {
+                          name: category.name,
+                        })}
+                        className="button button-secondary"
+                        disabled={
+                          isOrderSaving ||
+                          categories[categories.length - 1]?.id === category.id
+                        }
+                        onClick={() =>
+                          void reorderCategory(
+                            category.id,
+                            categories.findIndex(
+                              (item) => item.id === category.id,
+                            ) + 1,
+                          )
+                        }
+                        type="button"
+                      >
+                        ↓
+                      </button>
+                      <button
+                        className="button button-secondary"
+                        disabled={isOrderSaving}
+                        onClick={() => beginRename(category)}
+                        type="button"
+                      >
+                        {t("profile.rename")}
+                      </button>
+                      <button
+                        className="button button-secondary"
+                        disabled={isOrderSaving}
+                        onClick={() => void handleVisibilityChange(category)}
+                        type="button"
+                      >
+                        {category.isActive
+                          ? t("category.hide")
+                          : t("category.show")}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </section>
   );

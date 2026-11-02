@@ -4,6 +4,7 @@ import { buddyDatabase } from "../../data/buddyDatabase";
 import { createProfile, deleteProfile } from "../profiles/profileRepository";
 import {
   AllocationAlreadyExistsError,
+  AllocationMetadataError,
   AllocationNotFoundError,
   AllocationNameError,
   copyPreviousMonthAllocations,
@@ -61,6 +62,18 @@ describe("allocation repository", () => {
     ).rejects.toMatchObject({ code: "tooLong" });
   });
 
+  it("rejects allocation metadata longer than the supported limit", async () => {
+    const profile = await createProfile("Alex");
+    await expect(
+      createAllocation(profile.id, "2026-11", "Food", 100, {
+        number: "1".repeat(61),
+        type: "",
+        subnumber: "",
+        itemType: "",
+      }),
+    ).rejects.toBeInstanceOf(AllocationMetadataError);
+  });
+
   it("does not mark income as entered when only adding an allocation", async () => {
     const profile = await createProfile("Alex");
     await createAllocation(profile.id, "2026-11", "Food", 50000);
@@ -86,7 +99,12 @@ describe("allocation repository", () => {
   it("copies only new previous-month categories and preserves this month's income", async () => {
     const profile = await createProfile("Alex");
     await saveMonthlyIncome(profile.id, "2026-11", 2750000);
-    await createAllocation(profile.id, "2026-10", "Rent", 800000);
+    await createAllocation(profile.id, "2026-10", "Rent", 800000, {
+      number: "1.2",
+      type: "รายได้",
+      subnumber: "1.2.1",
+      itemType: "เงินเดือน",
+    });
     await createAllocation(profile.id, "2026-10", "Food", 400000);
     await createAllocation(profile.id, "2026-11", "rent", 825000);
     await createAllocation(profile.id, "2026-11", "Savings", 500000);
@@ -98,7 +116,15 @@ describe("allocation repository", () => {
     expect(result.sourceCount).toBe(2);
     expect(result.skippedCount).toBe(1);
     expect(result.copiedAllocations).toMatchObject([
-      { name: "Food", amountSatang: 400000, month: "2026-11" },
+      {
+        name: "Food",
+        amountSatang: 400000,
+        month: "2026-11",
+        number: "",
+        type: "",
+        subnumber: "",
+        itemType: "",
+      },
     ]);
     expect(currentMonth.plan?.incomeSatang).toBe(2750000);
     expect(currentMonth.allocations).toHaveLength(3);
@@ -167,6 +193,42 @@ describe("allocation repository", () => {
     });
   });
 
+  it("preserves allocation metadata when updating and copying entries", async () => {
+    const profile = await createProfile("Alex");
+    const original = await createAllocation(
+      profile.id,
+      "2026-10",
+      "Salary",
+      4500000,
+      {
+        number: "1.2",
+        type: "รายได้",
+        subnumber: "1.2.1",
+        itemType: "เงินได้จากเงินเดือน",
+      },
+    );
+
+    await expect(
+      updateAllocation(profile.id, "2026-10", original.id, "Salary", 4600000),
+    ).resolves.toMatchObject({
+      amountSatang: 4600000,
+      number: "1.2",
+      type: "รายได้",
+      subnumber: "1.2.1",
+      itemType: "เงินได้จากเงินเดือน",
+    });
+
+    const copy = await copyPreviousMonthAllocations(profile.id, "2026-11");
+    expect(copy.copiedAllocations).toMatchObject([
+      {
+        number: "1.2",
+        type: "รายได้",
+        subnumber: "1.2.1",
+        itemType: "เงินได้จากเงินเดือน",
+      },
+    ]);
+  });
+
   it("does not save an allocation update that would duplicate a category", async () => {
     const profile = await createProfile("Alex");
     const food = await createAllocation(profile.id, "2026-11", "Food", 50000);
@@ -175,12 +237,21 @@ describe("allocation repository", () => {
     await expect(
       updateAllocation(profile.id, "2026-11", rent.id, " food ", 90000),
     ).rejects.toBeInstanceOf(AllocationAlreadyExistsError);
-    await expect(getMonthlyBudget(profile.id, "2026-11")).resolves.toMatchObject({
-      allocations: [
-        { id: food.id, name: "Food", amountSatang: 50000 },
-        { id: rent.id, name: "Rent", amountSatang: 80000 },
-      ],
-    });
+    const snapshot = await getMonthlyBudget(profile.id, "2026-11");
+    expect(snapshot.allocations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: food.id,
+          name: "Food",
+          amountSatang: 50000,
+        }),
+        expect.objectContaining({
+          id: rent.id,
+          name: "Rent",
+          amountSatang: 80000,
+        }),
+      ]),
+    );
   });
 
   it("cascades profile deletion to budget plans and allocations", async () => {
@@ -192,5 +263,18 @@ describe("allocation repository", () => {
 
     await expect(buddyDatabase.budgetPlans.toArray()).resolves.toEqual([]);
     await expect(buddyDatabase.allocations.toArray()).resolves.toEqual([]);
+  });
+
+  it("keeps the previous month's order when copying many categories at once", async () => {
+    const profile = await createProfile("Alex");
+    const names = ["Rent", "Food", "Travel", "Phone", "Savings", "Gifts"];
+    for (const name of names) {
+      await createAllocation(profile.id, "2026-10", name, 1000);
+    }
+
+    await copyPreviousMonthAllocations(profile.id, "2026-11");
+    const copied = await getMonthlyBudget(profile.id, "2026-11");
+
+    expect(copied.allocations.map((allocation) => allocation.name)).toEqual(names);
   });
 });
